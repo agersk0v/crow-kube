@@ -1,0 +1,75 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: crow-kube
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/agersk0v/crow-kube
+  ref:
+    branch: main
+  secretRef:
+    name: crow-kube-git
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: crow-kube
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: crow-kube
+  timeout: 5m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: fitness
+  namespace: flux-system
+spec:
+  image: ghcr.io/agersk0v/crow-fitness-api
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: fitness
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: fitness
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{40}$'
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: fitness
+  namespace: flux-system
+spec:
+  interval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: crow-kube
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        name: Flux
+        email: flux@users.noreply.github.com
+      messageTemplate: "Update fitness images"
+    push:
+      branch: main
+  update:
+    path: ./
+    strategy: Setters

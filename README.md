@@ -107,6 +107,59 @@ To take the demo offline, remove the router rule. To remove the cluster entry po
 Remove-NetFirewallRule -DisplayName "Crow demo HTTP"
 ```
 
+## Automatic deployment with Flux
+
+Merge the crow-fitness chronological-image-tag PR first. Its next successful main build publishes matching `main-<CI run number>-<full SHA>` tags for frontend and API. The API tag is advertised last, after the frontend matching tag exists. Flux scans the API repository, sorts the extracted run number numerically, and writes that same full image tag into both app manifests in one Git commit. It ignores latest and sha-only tags. With no matching tag yet, image automation reports no match and existing workloads remain unchanged.
+
+The flow is: fitness main → Actions builds both images → chronological tags → Flux commits updated manifests here → Flux applies Git → Kubernetes rolls out pods. Rollouts are not simultaneous; old and new component pods can briefly coexist.
+
+### One-time setup on your Windows cluster
+
+Install the pinned Flux CLI (2.9.6) using the Windows instructions at https://fluxcd.io/flux/installation/. With Docker Desktop Kubernetes running:
+
+```powershell
+git pull
+kubectl config use-context docker-desktop
+flux check --pre
+flux install --version=v2.9.6 --components=source-controller,kustomize-controller --components-extra=image-reflector-controller,image-automation-controller
+flux check
+```
+
+This installs four controllers and their CRDs in flux-system. The Flux installation itself is managed by the CLI; controller upgrades are explicit, not automatic. The application manifests and Flux custom resources stay at this repo's root. No folder restructuring or GitHub Actions runner in your cluster is needed.
+
+Create a fine-grained GitHub token restricted to **crow-kube**, with **Contents: Read and write**. Set an expiration you can maintain. It lets Flux read Git and commit image updates directly to main; branch rules must permit those commits. No token belongs in Git or in chat. Enter the token as the password below:
+
+```powershell
+$fluxCredential = Get-Credential -UserName agersk0v -Message "Flux: enter the crow-kube Contents read/write token as password"
+flux create secret git crow-kube-git --namespace=flux-system --url=https://github.com/agersk0v/crow-kube --username=$($fluxCredential.UserName) --password=$($fluxCredential.GetNetworkCredential().Password)
+Remove-Variable fluxCredential
+kubectl apply -f flux.yaml
+flux reconcile source git crow-kube
+flux reconcile kustomization crow-kube --with-source
+flux get all
+flux get images all
+```
+
+Keep the existing database Secret and PVC. Root kustomization.yaml lists exactly the resources Flux applies; it does not include credentials. Reconciliation uses prune:false so removing a manifest does not automatically delete the database, PVC, namespace, or other managed resources. Intentional resource removal needs a separate manual deletion.
+
+The ImageRepository assumes public GHCR access. If scanning reports unauthorized, make both app packages public. Alternatively create a registry Secret in flux-system and reference it in ImageRepository.spec.secretRef; private pod pulls also need their own pull Secret in crow-fitness as described above.
+
+Flux connects outbound to GitHub/GHCR; no extra router port is needed. Once running, you do not need an open terminal for deployment. Windows and Docker Desktop still need to stay on. A sleeping/offline PC catches up after recovery.
+
+### Inspect, pause, and recover
+
+```powershell
+flux get sources git
+flux get kustomizations
+flux get images all
+flux reconcile image repository fitness
+flux reconcile image update fitness
+```
+
+To pause image updates, run `flux suspend image update fitness` and commit `spec.suspend: true` on ImageUpdateAutomation in flux.yaml so reconciliation retains the pause. To roll back, pause automation first, set both image references to the same older published tag in Git, and push. Otherwise automation selects the highest run number again. To resume, remove that suspend field in Git. Flux corrects manual changes to managed Kubernetes resources to match Git.
+
+Renew an expired Git token by replacing the crow-kube-git Secret securely. If a push is rejected, check token permissions and main branch rules. Pull before editing this repo because Flux may have committed newer image references. Credentials stay in cluster Secrets and must be recreated after a cluster reset.
+
 ## Inspect and update
 
 ```powershell
@@ -117,7 +170,7 @@ kubectl describe pods -n crow-fitness
 
 An ImagePullBackOff usually means a missing tag or missing GHCR access. A Pending PVC means no suitable default StorageClass is available; check `kubectl get storageclass`. Docker Desktop normally provides one. The PVC deliberately uses the cluster default rather than hardcoding a provider-specific class.
 
-New GHCR images do not restart running pods automatically. To pull latest again:
+Before Flux is installed, new GHCR images do not restart running pods automatically. For the initial latest-tag setup, you can pull latest again:
 
 ```powershell
 kubectl rollout restart deployment/api deployment/frontend -n crow-fitness
@@ -125,6 +178,6 @@ kubectl rollout status deployment/api -n crow-fitness --timeout=300s
 kubectl rollout status deployment/frontend -n crow-fitness --timeout=180s
 ```
 
-For repeatable deployments, replace latest in both manifests with matching published sha-<full-commit-SHA> tags, then apply the files again. If using the optional frontend localhost port-forward, reconnect it if its pod is replaced.
+After Flux is enabled, commit desired manifest changes here instead of applying local changes. Flux updates the imagepolicy-marked image lines automatically to matching chronological tags. Do not remove their setter comments. If using the optional frontend localhost port-forward, reconnect it if its pod is replaced.
 
-PostgreSQL uses one replica, Recreate updates, and a 5 GiB persistent volume mounted at /var/lib/postgresql for PostgreSQL 18. Pod replacements preserve the PVC. This is local storage, not a backup or a highly available database. Deleting the namespace/PVC or resetting Docker Desktop Kubernetes can delete workout data. Public access is opt-in through the forwarding steps above. Automatic deployment, backups, and production hosting setup are not included.
+PostgreSQL uses one replica, Recreate updates, and a 5 GiB persistent volume mounted at /var/lib/postgresql for PostgreSQL 18. Pod replacements preserve the PVC. This is local storage, not a backup or a highly available database. Deleting the namespace/PVC or resetting Docker Desktop Kubernetes can delete workout data. Public access is opt-in through the forwarding steps above. Flux provides automatic deployment after the one-time setup above. Backups and production hosting setup are not included.

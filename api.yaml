@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: ghcr.io/agersk0v/crow-fitness-api:latest
+          image: ghcr.io/agersk0v/crow-fitness-api:latest # {"$imagepolicy": "flux-system:fitness:tag"}
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/agersk0v/crow-fitness-frontend:latest
+          image: ghcr.io/agersk0v/crow-fitness-frontend:latest # {"$imagepolicy": "flux-system:fitness:tag"}
           imagePullPolicy: Always
           ports:
             - containerPort: 3000

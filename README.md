@@ -65,7 +65,7 @@ Keep the last command running and open http://localhost:3000. If that port is al
 
 This exposes the app to everyone, without login: visitors can view and change all demo workouts. Use only disposable data. This initial setup is HTTP, with no domain or TLS; do not use it for personal data or passwords.
 
-The traffic path is: public IP → router → Windows port 8080 → kubectl forwarding → Traefik → Ingress → frontend → API. PostgreSQL, the API, and the Kubernetes API are not forwarded publicly.
+The traffic path is: public IP → router → Windows port 8080 → Docker Desktop LoadBalancer → Traefik → Ingress → frontend → API. PostgreSQL, the API, and the Kubernetes API are not forwarded publicly.
 
 After the app deployments are ready:
 
@@ -73,10 +73,10 @@ After the app deployments are ready:
 kubectl apply -f traefik.yaml
 kubectl rollout status deployment/traefik -n traefik --timeout=180s
 kubectl apply -f ingress.yaml
-kubectl port-forward -n traefik service/traefik 8080:80 --address 0.0.0.0
+kubectl get service traefik -n traefik
 ```
 
-Keep that terminal running. Open http://localhost:8080. The hostless Ingress accepts your IP directly; no hosts-file entry or domain is required. It routes every path, including /api, to the frontend, which forwards API requests internally. Traefik uses the standard Kubernetes Ingress provider; no Helm or custom resource definitions are required, and its dashboard is not enabled.
+Before applying the updated Service, stop any old Traefik port-forward command with Ctrl+C so port 8080 is free. The Service uses type LoadBalancer with port 8080; Docker Desktop provides the host listener. Open http://localhost:8080. No forwarding terminal is needed. The hostless Ingress accepts your IP directly; no hosts-file entry or domain is required. It routes every path, including /api, to the frontend, which forwards API requests internally. Traefik uses the standard Kubernetes Ingress provider; no Helm or custom resource definitions are required, and its dashboard is not enabled.
 
 On Windows, find your active Ethernet/Wi-Fi IPv4 address with `ipconfig` (for example 192.168.1.50, not a WSL or Docker adapter). Reserve that address in your router's DHCP settings. In a separate Administrator PowerShell terminal, allow inbound HTTP on a trusted Private home-network profile:
 
@@ -97,9 +97,11 @@ Visit http://YOUR-PUBLIC-IP:8080 from a phone using mobile data, with Wi-Fi disa
 
 If LAN access works but external access does not, compare your router's WAN IPv4 with your public IPv4. Carrier-grade NAT (including WAN addresses in 100.64.0.0/10) or upstream private addresses may prevent direct inbound connections. Double NAT requires forwarding on both routers; carrier-grade NAT usually requires a public IP from your ISP or a tunnel. ISP filtering may also block access. Port forwarding cannot overcome these conditions.
 
-Windows, Docker Desktop, Kubernetes, and the forwarding terminal must stay running. Restart the forwarding command if Traefik's pod is replaced. This is temporary demo access, not an unattended hosting setup. Public-IP changes also change the URL.
+Windows, Docker Desktop, and Kubernetes must stay running. No kubectl port-forward process is required, including after Traefik pod replacements. Public-IP changes also change the URL.
 
-To take the demo offline, stop the forwarding command and remove the router rule. Remove its Windows firewall rule from Administrator PowerShell:
+If the Service stays Pending or localhost:8080 does not respond, inspect Docker Desktop's Kubernetes state and ensure another process is not using port 8080. If localhost works but LAN access does not, check the firewall and Docker Desktop's host binding: a localhost-only listener cannot accept the router's forwarded traffic. This depends on the Docker Desktop backend/version; a LoadBalancer address of localhost alone does not prove LAN access. Verify from another LAN device and mobile data before assuming public access is restored.
+
+To take the demo offline, remove the router rule. To remove the cluster entry point too, run `kubectl delete service traefik -n traefik`; applying traefik.yaml recreates it. Remove its Windows firewall rule from Administrator PowerShell:
 
 ```powershell
 Remove-NetFirewallRule -DisplayName "Crow demo HTTP"
@@ -123,6 +125,6 @@ kubectl rollout status deployment/api -n crow-fitness --timeout=300s
 kubectl rollout status deployment/frontend -n crow-fitness --timeout=180s
 ```
 
-For repeatable deployments, replace latest in both manifests with matching published sha-<full-commit-SHA> tags, then apply the files again. Reconnect port forwarding if its pod is replaced.
+For repeatable deployments, replace latest in both manifests with matching published sha-<full-commit-SHA> tags, then apply the files again. If using the optional frontend localhost port-forward, reconnect it if its pod is replaced.
 
 PostgreSQL uses one replica, Recreate updates, and a 5 GiB persistent volume mounted at /var/lib/postgresql for PostgreSQL 18. Pod replacements preserve the PVC. This is local storage, not a backup or a highly available database. Deleting the namespace/PVC or resetting Docker Desktop Kubernetes can delete workout data. Public access is opt-in through the forwarding steps above. Automatic deployment, backups, and production hosting setup are not included.

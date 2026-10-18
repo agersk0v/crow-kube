@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik
+  namespace: traefik
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crow-traefik
+rules:
+  - apiGroups: [""]
+    resources: [services, secrets, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses/status]
+    verbs: [update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crow-traefik
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crow-traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: traefik
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: traefik
+spec:
+  controller: traefik.io/ingress-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik
+  template:
+    metadata:
+      labels:
+        app: traefik
+    spec:
+      serviceAccountName: traefik
+      containers:
+        - name: traefik
+          image: traefik:v3.7.15
+          args:
+            - --entrypoints.web.address=:8000
+            - --entrypoints.health.address=:9000
+            - --providers.kubernetesingress=true
+            - --providers.kubernetesingress.ingressclass=traefik
+            - --providers.kubernetesingress.namespaces=crow-fitness
+            - --ping=true
+            - --ping.entrypoint=health
+            - --accesslog=true
+          ports:
+            - name: web
+              containerPort: 8000
+            - name: health
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: health
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: health
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  selector:
+    app: traefik
+  ports:
+    - name: web
+      port: 80
+      targetPort: web

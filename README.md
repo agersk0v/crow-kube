@@ -18,7 +18,15 @@ The node should be Ready. These commands create a new, empty workout database, s
 
 ### Image access
 
-If both packages are public, no registry setup is needed. Otherwise, authenticate locally with a GitHub classic token with read:packages and create an image-pull Secret in this namespace. Add the following under the pod's `spec` (alongside `containers`) in both api.yaml and frontend.yaml, using your Secret's name:
+If both packages are public, no registry setup is needed. Otherwise, create a GitHub classic token with read:packages, then run the following. Enter that token as the password in the credential prompt:
+
+```powershell
+$ghcrCredential = Get-Credential -UserName agersk0v -Message "GHCR: enter your read:packages token as the password"
+kubectl create secret docker-registry ghcr -n crow-fitness --docker-server=ghcr.io --docker-username=$($ghcrCredential.UserName) --docker-password=$($ghcrCredential.GetNetworkCredential().Password)
+Remove-Variable ghcrCredential
+```
+
+Add the following under the pod's `spec` (alongside `containers`) in both api.yaml and frontend.yaml, using your Secret's name:
 
 ```yaml
 imagePullSecrets:
